@@ -5,8 +5,11 @@ interface CardProps {
   /** Optional heading rendered above the card body. */
   title?: string;
   children: React.ReactNode;
-  /** External links open in a new tab, internal ones stay in this one. */
-  href: string;
+  /**
+   * When provided the card becomes a link. External links open in a new tab,
+   * internal ones stay in the current tab.
+   */
+  href?: string;
 }
 
 export function Card({
@@ -15,6 +18,17 @@ export function Card({
   children,
   href,
 }: CardProps): JSX.Element {
+  const content = (
+    <>
+      {title ? <h2 className="text-xl font-semibold">{title}</h2> : null}
+      <p>{children}</p>
+    </>
+  );
+
+  if (!href) {
+    return <div className={className}>{content}</div>;
+  }
+
   const isExternal = /^https?:\/\//.test(href);
 
   return (
@@ -24,8 +38,7 @@ export function Card({
       rel={isExternal ? "noopener noreferrer" : undefined}
       target={isExternal ? "_blank" : undefined}
     >
-      {title ? <h2 className="text-xl font-semibold">{title}</h2> : null}
-      <p>{children}</p>
+      {content}
     </a>
   );
 }
