@@ -7,7 +7,11 @@
     "lint": "turbo lint",
     "check-types": "turbo check-types",
     "clean": "turbo clean",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "db:generate": "pnpm --filter @repo/db db:generate",
+    "db:migrate": "pnpm --filter @repo/db db:migrate",
+    "db:deploy": "pnpm --filter @repo/db db:deploy",
+    "db:studio": "pnpm --filter @repo/db db:studio"
   },
   "devDependencies": {
     "prettier": "^3.2.5",
