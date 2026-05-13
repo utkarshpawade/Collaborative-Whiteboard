@@ -15,5 +15,17 @@ export const SigninSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+export const CreateRoomSchema = z.object({
+  name: z
+    .string()
+    .min(3, "Room name must be at least 3 characters")
+    .max(20, "Room name must be at most 20 characters")
+    .regex(
+      /^[a-zA-Z0-9-_]+$/,
+      "Room name may only contain letters, numbers, hyphens and underscores",
+    ),
+});
+
 export type CreateUserInput = z.infer<typeof CreateUserSchema>;
 export type SigninInput = z.infer<typeof SigninSchema>;
+export type CreateRoomInput = z.infer<typeof CreateRoomSchema>;
