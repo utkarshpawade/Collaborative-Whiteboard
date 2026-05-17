@@ -1,0 +1,67 @@
+import express from "express";
+import jwt from "jsonwebtoken";
+import {
+  JWT_SECRET,
+  JWT_EXPIRES_IN,
+  HTTP_PORT,
+} from "@repo/backend-common/config";
+import { CreateUserSchema, SigninSchema } from "@repo/common/types";
+import { prismaClient } from "@repo/db/client";
+
+const app = express();
+
+app.use(express.json());
+
+function signToken(userId: string): string {
+  return jwt.sign({ userId }, JWT_SECRET, {
+    expiresIn: JWT_EXPIRES_IN,
+  } as jwt.SignOptions);
+}
+
+app.post("/signup", async (req, res) => {
+  const parsedData = CreateUserSchema.safeParse(req.body);
+  if (!parsedData.success) {
+    res.status(400).json({ message: "Incorrect inputs" });
+    return;
+  }
+
+  const user = await prismaClient.user.create({
+    data: {
+      email: parsedData.data.username,
+      password: parsedData.data.password,
+      name: parsedData.data.name,
+    },
+    select: { id: true, email: true, name: true },
+  });
+
+  res.status(201).json({ userId: user.id, user, token: signToken(user.id) });
+});
+
+app.post("/signin", async (req, res) => {
+  const parsedData = SigninSchema.safeParse(req.body);
+  if (!parsedData.success) {
+    res.status(400).json({ message: "Incorrect inputs" });
+    return;
+  }
+
+  const user = await prismaClient.user.findFirst({
+    where: {
+      email: parsedData.data.username,
+      password: parsedData.data.password,
+    },
+  });
+
+  if (!user) {
+    res.status(403).json({ message: "Incorrect email or password" });
+    return;
+  }
+
+  res.json({
+    token: signToken(user.id),
+    user: { id: user.id, email: user.email, name: user.name },
+  });
+});
+
+app.listen(HTTP_PORT, () => {
+  console.log(`[http-backend] listening on port ${HTTP_PORT}`);
+});
