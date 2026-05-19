@@ -84,6 +84,18 @@ app.post("/room", middleware, async (req, res) => {
   res.status(201).json({ roomId: room.id, slug: room.slug });
 });
 
+app.get("/chats/:roomId", middleware, async (req, res) => {
+  const roomId = Number(req.params.roomId);
+
+  // Ascending so clients replay the room history in the order it was written.
+  const messages = await prismaClient.chat.findMany({
+    where: { roomId },
+    orderBy: { id: "asc" },
+  });
+
+  res.json({ messages });
+});
+
 app.listen(HTTP_PORT, () => {
   console.log(`[http-backend] listening on port ${HTTP_PORT}`);
 });
