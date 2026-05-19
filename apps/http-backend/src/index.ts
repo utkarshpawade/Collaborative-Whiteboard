@@ -5,8 +5,13 @@ import {
   JWT_EXPIRES_IN,
   HTTP_PORT,
 } from "@repo/backend-common/config";
-import { CreateUserSchema, SigninSchema } from "@repo/common/types";
+import {
+  CreateUserSchema,
+  SigninSchema,
+  CreateRoomSchema,
+} from "@repo/common/types";
 import { prismaClient } from "@repo/db/client";
+import { middleware } from "./middleware";
 
 const app = express();
 
@@ -60,6 +65,23 @@ app.post("/signin", async (req, res) => {
     token: signToken(user.id),
     user: { id: user.id, email: user.email, name: user.name },
   });
+});
+
+app.post("/room", middleware, async (req, res) => {
+  const parsedData = CreateRoomSchema.safeParse(req.body);
+  if (!parsedData.success) {
+    res.status(400).json({ message: "Incorrect inputs" });
+    return;
+  }
+
+  const room = await prismaClient.room.create({
+    data: {
+      slug: parsedData.data.name,
+      adminId: req.userId!,
+    },
+  });
+
+  res.status(201).json({ roomId: room.id, slug: room.slug });
 });
 
 app.listen(HTTP_PORT, () => {
