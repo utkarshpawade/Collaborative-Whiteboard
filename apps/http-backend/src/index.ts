@@ -84,6 +84,17 @@ app.post("/room", middleware, async (req, res) => {
   res.status(201).json({ roomId: room.id, slug: room.slug });
 });
 
+app.get("/rooms", middleware, async (req, res) => {
+  const rooms = await prismaClient.room.findMany({
+    where: { adminId: req.userId },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    select: { id: true, slug: true, createdAt: true },
+  });
+
+  res.json({ rooms });
+});
+
 app.get("/room/:slug", middleware, async (req, res) => {
   const room = await prismaClient.room.findUnique({
     where: { slug: req.params.slug },
