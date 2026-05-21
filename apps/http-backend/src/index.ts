@@ -84,6 +84,20 @@ app.post("/room", middleware, async (req, res) => {
   res.status(201).json({ roomId: room.id, slug: room.slug });
 });
 
+app.get("/room/:slug", middleware, async (req, res) => {
+  const room = await prismaClient.room.findUnique({
+    where: { slug: req.params.slug },
+    select: { id: true, slug: true, createdAt: true },
+  });
+
+  if (!room) {
+    res.status(404).json({ message: "Room not found" });
+    return;
+  }
+
+  res.json({ room });
+});
+
 app.get("/chats/:roomId", middleware, async (req, res) => {
   const roomId = Number(req.params.roomId);
 
