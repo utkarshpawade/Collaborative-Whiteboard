@@ -67,6 +67,20 @@ app.post("/signin", async (req, res) => {
   });
 });
 
+app.get("/me", middleware, async (req, res) => {
+  const user = await prismaClient.user.findUnique({
+    where: { id: req.userId },
+    select: { id: true, email: true, name: true },
+  });
+
+  if (!user) {
+    res.status(404).json({ message: "User not found" });
+    return;
+  }
+
+  res.json({ user });
+});
+
 app.post("/room", middleware, async (req, res) => {
   const parsedData = CreateRoomSchema.safeParse(req.body);
   if (!parsedData.success) {
