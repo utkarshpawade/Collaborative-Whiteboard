@@ -1,9 +1,11 @@
 import express from "express";
+import cors from "cors";
 import jwt from "jsonwebtoken";
 import {
   JWT_SECRET,
   JWT_EXPIRES_IN,
   HTTP_PORT,
+  ALLOWED_ORIGINS,
 } from "@repo/backend-common/config";
 import {
   CreateUserSchema,
@@ -16,6 +18,12 @@ import { middleware } from "./middleware";
 const app = express();
 
 app.use(express.json());
+app.use(
+  cors({
+    origin: ALLOWED_ORIGINS.includes("*") ? true : ALLOWED_ORIGINS,
+    credentials: true,
+  }),
+);
 
 function signToken(userId: string): string {
   return jwt.sign({ userId }, JWT_SECRET, {
