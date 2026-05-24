@@ -25,6 +25,16 @@ app.use(
   }),
 );
 
+/** Turns a zod error into a flat `{ field: message }` object for the client. */
+function fieldErrors(error: {
+  flatten: () => { fieldErrors: Record<string, string[] | undefined> };
+}) {
+  const flat = error.flatten().fieldErrors;
+  return Object.fromEntries(
+    Object.entries(flat).map(([key, messages]) => [key, messages?.[0] ?? "Invalid value"]),
+  );
+}
+
 function signToken(userId: string): string {
   return jwt.sign({ userId }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
@@ -34,7 +44,10 @@ function signToken(userId: string): string {
 app.post("/signup", async (req, res) => {
   const parsedData = CreateUserSchema.safeParse(req.body);
   if (!parsedData.success) {
-    res.status(400).json({ message: "Incorrect inputs" });
+    res.status(400).json({
+      message: "Incorrect inputs",
+      errors: fieldErrors(parsedData.error),
+    });
     return;
   }
 
@@ -53,7 +66,10 @@ app.post("/signup", async (req, res) => {
 app.post("/signin", async (req, res) => {
   const parsedData = SigninSchema.safeParse(req.body);
   if (!parsedData.success) {
-    res.status(400).json({ message: "Incorrect inputs" });
+    res.status(400).json({
+      message: "Incorrect inputs",
+      errors: fieldErrors(parsedData.error),
+    });
     return;
   }
 
@@ -92,7 +108,10 @@ app.get("/me", middleware, async (req, res) => {
 app.post("/room", middleware, async (req, res) => {
   const parsedData = CreateRoomSchema.safeParse(req.body);
   if (!parsedData.success) {
-    res.status(400).json({ message: "Incorrect inputs" });
+    res.status(400).json({
+      message: "Incorrect inputs",
+      errors: fieldErrors(parsedData.error),
+    });
     return;
   }
 
