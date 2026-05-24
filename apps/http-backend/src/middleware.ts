@@ -26,13 +26,19 @@ export function middleware(req: Request, res: Response, next: NextFunction) {
     return;
   }
 
-  const decoded = jwt.verify(token, JWT_SECRET);
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
 
-  if (typeof decoded === "string" || !decoded.userId) {
-    res.status(401).json({ message: "Invalid token" });
-    return;
+    if (typeof decoded === "string" || !decoded.userId) {
+      res.status(401).json({ message: "Invalid token" });
+      return;
+    }
+
+    req.userId = String(decoded.userId);
+    next();
+  } catch {
+    // jwt.verify throws on an expired or tampered token - never let that
+    // bubble up as an unhandled 500.
+    res.status(401).json({ message: "Invalid or expired token" });
   }
-
-  req.userId = String(decoded.userId);
-  next();
 }
