@@ -12,11 +12,14 @@ declare global {
 }
 
 /**
- * Reads the token from the Authorization header and attaches the user id to the
- * request. Responds with 401 when the token is missing or invalid.
+ * Reads the bearer token from the Authorization header and attaches the user id
+ * to the request. Responds with 401 when the token is missing or invalid.
  */
 export function middleware(req: Request, res: Response, next: NextFunction) {
-  const token = req.headers.authorization ?? "";
+  const header = req.headers.authorization ?? "";
+  const token = header.startsWith("Bearer ")
+    ? header.slice(7).trim()
+    : header.trim();
 
   if (!token) {
     res.status(401).json({ message: "Authentication required" });
