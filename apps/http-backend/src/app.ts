@@ -41,6 +41,10 @@ export function createApp(): Express {
     }),
   );
 
+  app.get("/health", (_req, res) => {
+    res.json({ status: "ok", uptime: process.uptime() });
+  });
+
   /* ----------------------------------- auth ---------------------------------- */
 
   app.post("/signup", async (req, res) => {
