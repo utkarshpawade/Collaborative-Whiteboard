@@ -14,6 +14,10 @@ export const HTTP_PORT: number = Number(
   process.env.PORT || process.env.HTTP_PORT || 3001,
 );
 
+export const WS_PORT: number = Number(
+  process.env.PORT || process.env.WS_PORT || 8080,
+);
+
 /**
  * Comma separated list of allowed browser origins.
  * Use "*" (the default in development) to allow any origin.
