@@ -1,6 +1,7 @@
 import { WebSocket, WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET, WS_PORT } from "@repo/backend-common/config";
+import { prismaClient } from "@repo/db/client";
 
 interface Connection {
   ws: WebSocket;
@@ -55,7 +56,7 @@ wss.on("connection", (ws, request) => {
   };
   connections.set(ws, connection);
 
-  ws.on("message", (data) => {
+  ws.on("message", async (data) => {
     let message: { type?: string; roomId?: string | number; message?: string };
     try {
       message = JSON.parse(data.toString());
@@ -78,6 +79,26 @@ wss.on("connection", (ws, request) => {
     }
 
     if (message.type === "chat") {
+      const numericRoomId = Number(roomId);
+      if (!Number.isInteger(numericRoomId)) {
+        send(ws, { type: "error", message: "Invalid room id" });
+        return;
+      }
+
+      try {
+        await prismaClient.chat.create({
+          data: {
+            roomId: numericRoomId,
+            message: String(message.message),
+            userId: connection.userId,
+          },
+        });
+      } catch (e) {
+        console.error("[ws-backend] failed to persist chat:", e);
+        send(ws, { type: "error", message: "Could not save your drawing" });
+        return;
+      }
+
       for (const [peerWs, peer] of connections) {
         if (peer.rooms.has(roomId)) {
           send(peerWs, {
