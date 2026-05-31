@@ -56,7 +56,7 @@ wss.on("connection", (ws, request) => {
   connections.set(ws, connection);
 
   ws.on("message", (data) => {
-    let message: { type?: string; roomId?: string | number };
+    let message: { type?: string; roomId?: string | number; message?: string };
     try {
       message = JSON.parse(data.toString());
     } catch {
@@ -75,6 +75,19 @@ wss.on("connection", (ws, request) => {
     if (message.type === "leave_room") {
       connection.rooms.delete(roomId);
       return;
+    }
+
+    if (message.type === "chat") {
+      for (const [peerWs, peer] of connections) {
+        if (peer.rooms.has(roomId)) {
+          send(peerWs, {
+            type: "chat",
+            message: message.message,
+            roomId,
+            userId: connection.userId,
+          });
+        }
+      }
     }
   });
 
