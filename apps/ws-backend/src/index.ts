@@ -1,6 +1,7 @@
 import { WebSocket, WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET, WS_PORT } from "@repo/backend-common/config";
+import { ClientMessageSchema } from "@repo/common/types";
 import { prismaClient } from "@repo/db/client";
 
 interface Connection {
@@ -57,14 +58,21 @@ wss.on("connection", (ws, request) => {
   connections.set(ws, connection);
 
   ws.on("message", async (data) => {
-    let message: { type?: string; roomId?: string | number; message?: string };
+    let raw: unknown;
     try {
-      message = JSON.parse(data.toString());
+      raw = JSON.parse(data.toString());
     } catch {
       send(ws, { type: "error", message: "Malformed JSON" });
       return;
     }
 
+    const parsed = ClientMessageSchema.safeParse(raw);
+    if (!parsed.success) {
+      send(ws, { type: "error", message: "Unsupported message" });
+      return;
+    }
+
+    const message = parsed.data;
     const roomId = String(message.roomId);
 
     if (message.type === "join_room") {
@@ -89,7 +97,7 @@ wss.on("connection", (ws, request) => {
         await prismaClient.chat.create({
           data: {
             roomId: numericRoomId,
-            message: String(message.message),
+            message: message.message,
             userId: connection.userId,
           },
         });

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@repo/backend-common": "workspace:*",
+    "@repo/common": "workspace:*",
     "@repo/db": "workspace:*",
     "jsonwebtoken": "^9.0.2",
     "ws": "^8.21.2"
