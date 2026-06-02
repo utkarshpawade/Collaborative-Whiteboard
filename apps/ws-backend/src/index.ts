@@ -87,6 +87,12 @@ wss.on("connection", (ws, request) => {
     }
 
     if (message.type === "chat") {
+      // Only members of the room may post to it.
+      if (!connection.rooms.has(roomId)) {
+        send(ws, { type: "error", message: "Join the room before sending" });
+        return;
+      }
+
       const numericRoomId = Number(roomId);
       if (!Number.isInteger(numericRoomId)) {
         send(ws, { type: "error", message: "Invalid room id" });
