@@ -113,8 +113,10 @@ wss.on("connection", (ws, request) => {
         return;
       }
 
+      // The sender already rendered this locally, so echoing it back would
+      // duplicate the shape on their canvas.
       for (const [peerWs, peer] of connections) {
-        if (peer.rooms.has(roomId)) {
+        if (peerWs !== ws && peer.rooms.has(roomId)) {
           send(peerWs, {
             type: "chat",
             message: message.message,
