@@ -8,9 +8,12 @@ interface Connection {
   ws: WebSocket;
   userId: string;
   rooms: Set<string>;
+  isAlive: boolean;
 }
 
 const connections = new Map<WebSocket, Connection>();
+
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 function checkUser(token: string): string | null {
   try {
@@ -54,8 +57,13 @@ wss.on("connection", (ws, request) => {
     ws,
     userId,
     rooms: new Set(),
+    isAlive: true,
   };
   connections.set(ws, connection);
+
+  ws.on("pong", () => {
+    connection.isAlive = true;
+  });
 
   ws.on("message", async (data) => {
     let raw: unknown;
@@ -138,5 +146,18 @@ wss.on("connection", (ws, request) => {
     cleanup();
   });
 });
+
+// Drop connections that stopped responding so `connections` cannot grow forever.
+setInterval(() => {
+  for (const [ws, connection] of connections) {
+    if (!connection.isAlive) {
+      ws.terminate();
+      connections.delete(ws);
+      continue;
+    }
+    connection.isAlive = false;
+    ws.ping();
+  }
+}, HEARTBEAT_INTERVAL_MS);
 
 console.log(`[ws-backend] listening on port ${WS_PORT}`);
