@@ -35,7 +35,11 @@ function send(ws: WebSocket, payload: unknown) {
   }
 }
 
-function extractToken(url: string | undefined): string {
+/** Accepts the token from `?token=` or an `Authorization: Bearer` header. */
+function extractToken(url: string | undefined, authHeader?: string): string {
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.slice(7).trim();
+  }
   if (!url) return "";
   const queryString = url.split("?")[1];
   if (!queryString) return "";
@@ -45,7 +49,8 @@ function extractToken(url: string | undefined): string {
 const wss = new WebSocketServer({ port: WS_PORT });
 
 wss.on("connection", (ws, request) => {
-  const userId = checkUser(extractToken(request.url));
+  const token = extractToken(request.url, request.headers.authorization);
+  const userId = checkUser(token);
 
   if (!userId) {
     // 1008 = policy violation.
