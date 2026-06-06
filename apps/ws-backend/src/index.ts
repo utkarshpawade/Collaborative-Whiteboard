@@ -1,3 +1,4 @@
+import { createServer } from "http";
 import { WebSocket, WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET, WS_PORT } from "@repo/backend-common/config";
@@ -46,7 +47,17 @@ function extractToken(url: string | undefined, authHeader?: string): string {
   return new URLSearchParams(queryString).get("token") ?? "";
 }
 
-const wss = new WebSocketServer({ port: WS_PORT });
+const server = createServer((req, res) => {
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", connections: connections.size }));
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+
+const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws, request) => {
   const token = extractToken(request.url, request.headers.authorization);
@@ -165,4 +176,6 @@ setInterval(() => {
   }
 }, HEARTBEAT_INTERVAL_MS);
 
-console.log(`[ws-backend] listening on port ${WS_PORT}`);
+server.listen(WS_PORT, () => {
+  console.log(`[ws-backend] listening on port ${WS_PORT}`);
+});
