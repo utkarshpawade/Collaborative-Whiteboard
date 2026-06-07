@@ -164,7 +164,7 @@ wss.on("connection", (ws, request) => {
 });
 
 // Drop connections that stopped responding so `connections` cannot grow forever.
-setInterval(() => {
+const heartbeat = setInterval(() => {
   for (const [ws, connection] of connections) {
     if (!connection.isAlive) {
       ws.terminate();
@@ -179,3 +179,22 @@ setInterval(() => {
 server.listen(WS_PORT, () => {
   console.log(`[ws-backend] listening on port ${WS_PORT}`);
 });
+
+function shutdown(signal: string) {
+  console.log(`[ws-backend] ${signal} received, shutting down`);
+  clearInterval(heartbeat);
+  for (const ws of connections.keys()) {
+    ws.close(1001, "Server shutting down");
+  }
+  wss.close(() => {
+    server.close(async () => {
+      await prismaClient.$disconnect();
+      process.exit(0);
+    });
+  });
+
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
