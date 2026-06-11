@@ -7,6 +7,8 @@ import { clearToken, getToken, setToken } from "../lib/auth";
 
 export default function Home() {
   const [signedIn, setSignedIn] = useState(false);
+  const [isSignup, setIsSignup] = useState(false);
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [roomId, setRoomId] = useState("");
@@ -23,14 +25,22 @@ export default function Home() {
     setError(null);
     setBusy(true);
     try {
-      const res = await api.post("/signin", { username: email, password });
+      // Both endpoints hand back a token, so signup logs you straight in.
+      const res = isSignup
+        ? await api.post("/signup", { username: email, password, name })
+        : await api.post("/signin", { username: email, password });
       setToken(res.data.token);
       setSignedIn(true);
     } catch (err) {
-      setError(getErrorMessage(err, "Sign in failed"));
+      setError(getErrorMessage(err, isSignup ? "Sign up failed" : "Sign in failed"));
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleMode() {
+    setIsSignup((current) => !current);
+    setError(null);
   }
 
   function handleJoin(e: FormEvent) {
@@ -83,32 +93,78 @@ export default function Home() {
             </button>
           </>
         ) : (
-          <form onSubmit={handleAuth} style={{ display: "grid", gap: 8 }}>
-            <p style={{ opacity: 0.7, margin: 0 }}>
-              Sign in with the account you created in the drawing app.
+          <>
+            <form onSubmit={handleAuth} style={{ display: "grid", gap: 8 }}>
+              <p style={{ opacity: 0.7, margin: 0 }}>
+                {isSignup
+                  ? "Create an account - it works in the drawing app too."
+                  : "Sign in with the account you created in the drawing app."}
+              </p>
+              {isSignup && (
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  type="text"
+                  placeholder="Name"
+                  autoComplete="name"
+                  required
+                  maxLength={50}
+                  style={{ padding: 10 }}
+                />
+              )}
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                placeholder="Email"
+                autoComplete="email"
+                required
+                style={{ padding: 10 }}
+              />
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                placeholder="Password"
+                autoComplete={isSignup ? "new-password" : "current-password"}
+                required
+                minLength={isSignup ? 6 : undefined}
+                style={{ padding: 10 }}
+              />
+              {isSignup && (
+                <p style={{ opacity: 0.7, margin: 0, fontSize: 13 }}>
+                  Password must be at least 6 characters.
+                </p>
+              )}
+              <button type="submit" disabled={busy} style={{ padding: 10 }}>
+                {busy
+                  ? isSignup
+                    ? "Creating account..."
+                    : "Signing in..."
+                  : isSignup
+                    ? "Sign up"
+                    : "Sign in"}
+              </button>
+            </form>
+            <p style={{ marginTop: 12, fontSize: 14 }}>
+              {isSignup ? "Already have an account? " : "New here? "}
+              <button
+                type="button"
+                onClick={toggleMode}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "inherit",
+                  font: "inherit",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                }}
+              >
+                {isSignup ? "Sign in" : "Create an account"}
+              </button>
             </p>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              placeholder="Email"
-              autoComplete="email"
-              required
-              style={{ padding: 10 }}
-            />
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              placeholder="Password"
-              autoComplete="current-password"
-              required
-              style={{ padding: 10 }}
-            />
-            <button type="submit" disabled={busy} style={{ padding: 10 }}>
-              {busy ? "Signing in..." : "Sign in"}
-            </button>
-          </form>
+          </>
         )}
       </div>
     </div>
