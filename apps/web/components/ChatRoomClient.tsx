@@ -19,7 +19,7 @@ export function ChatRoomClient({
 }) {
   const [chats, setChats] = useState<ChatMessage[]>(messages);
   const [currentMessage, setCurrentMessage] = useState("");
-  const { socket, loading } = useSocket();
+  const { socket, loading, error } = useSocket();
 
   useEffect(() => {
     if (!socket || loading) return;
@@ -54,6 +54,8 @@ export function ChatRoomClient({
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: 24 }}>
       <h1 style={{ marginBottom: 16 }}>Room {slug ?? id}</h1>
+
+      {error && <p style={{ color: "crimson" }}>{error}</p>}
 
       <div
         style={{
