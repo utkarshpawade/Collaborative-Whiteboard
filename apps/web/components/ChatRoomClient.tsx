@@ -48,6 +48,8 @@ export function ChatRoomClient({
     if (!text || !socket) return;
 
     socket.send(JSON.stringify({ type: "chat", roomId: id, message: text }));
+    // The server does not echo back to the sender, so append locally.
+    setChats((c) => [...c, { message: text }]);
     setCurrentMessage("");
   }
 
