@@ -48,6 +48,12 @@ export function getErrorMessage(error: unknown, fallback = "Something went wrong
   return fallback;
 }
 
+export interface Room {
+  id: number;
+  slug: string;
+  createdAt: string;
+}
+
 export async function signup(input: {
   username: string;
   password: string;
@@ -63,4 +69,19 @@ export async function signin(input: {
 }): Promise<{ token: string }> {
   const res = await api.post("/signin", input);
   return res.data;
+}
+
+export async function listRooms(): Promise<Room[]> {
+  const res = await api.get("/rooms");
+  return res.data.rooms ?? [];
+}
+
+export async function createRoom(name: string): Promise<{ roomId: number; slug: string }> {
+  const res = await api.post("/room", { name });
+  return res.data;
+}
+
+export async function getRoomBySlug(slug: string): Promise<Room> {
+  const res = await api.get(`/room/${encodeURIComponent(slug)}`);
+  return res.data.room;
 }
