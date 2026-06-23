@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Users2 } from "lucide-react";
+import { Loader2, LogOut, Plus, Users2 } from "lucide-react";
 import {
   createRoom,
   getErrorMessage,
@@ -10,12 +10,14 @@ import {
   listRooms,
   type Room,
 } from "@/lib/api";
+import { clearToken, isAuthenticated } from "@/lib/auth";
 
 const INPUT_CLASS =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
 export default function RoomsPage() {
   const router = useRouter();
+  const [checkedAuth, setCheckedAuth] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
   const [newRoom, setNewRoom] = useState("");
@@ -23,6 +25,15 @@ export default function RoomsPage() {
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Token lives in localStorage, so the guard has to run on the client.
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      router.replace("/signin");
+      return;
+    }
+    setCheckedAuth(true);
+  }, [router]);
 
   const refresh = useCallback(async () => {
     setLoadingRooms(true);
@@ -36,8 +47,10 @@ export default function RoomsPage() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (checkedAuth) {
+      void refresh();
+    }
+  }, [checkedAuth, refresh]);
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -65,14 +78,36 @@ export default function RoomsPage() {
     }
   }
 
+  function handleSignOut() {
+    clearToken();
+    router.replace("/signin");
+  }
+
+  if (!checkedAuth) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-muted/40">
       <div className="container mx-auto max-w-4xl px-4 py-12 sm:px-6">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Your boards</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Create a board or join one by name.
-          </p>
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Your boards</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Create a board or join one by name.
+            </p>
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-accent"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
         </div>
 
         {error && (
