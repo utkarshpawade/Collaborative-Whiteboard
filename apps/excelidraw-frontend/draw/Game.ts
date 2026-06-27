@@ -1,4 +1,5 @@
 import { type Point, type Shape } from "@repo/common/types";
+import { getExistingShapes } from "./http";
 
 export type Tool = "circle" | "rect";
 
@@ -32,6 +33,7 @@ export class Game {
     this.resize();
     this.initHandlers();
     this.initMouseHandlers();
+    void this.init();
   }
 
   /* ------------------------------- public API ------------------------------ */
@@ -52,6 +54,16 @@ export class Game {
   }
 
   /* --------------------------------- setup --------------------------------- */
+
+  private async init() {
+    try {
+      this.existingShapes = await getExistingShapes(this.roomId);
+    } catch (e) {
+      console.error("[canvas] could not load existing shapes:", e);
+      this.existingShapes = [];
+    }
+    this.render();
+  }
 
   private initHandlers() {
     this.socket.onmessage = (event) => {
