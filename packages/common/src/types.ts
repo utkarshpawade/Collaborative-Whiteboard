@@ -53,6 +53,10 @@ export const ShapeSchema = z.discriminatedUnion("type", [
     centerY: z.number().finite(),
     radius: z.number().finite().nonnegative(),
   }),
+  z.object({
+    type: z.literal("pencil"),
+    points: z.array(PointSchema).min(1).max(5000),
+  }),
 ]);
 
 export type Point = z.infer<typeof PointSchema>;

@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Circle, RectangleHorizontalIcon } from "lucide-react";
+import { Circle, Pencil, RectangleHorizontalIcon } from "lucide-react";
 import { IconButton } from "./IconButton";
 import { Game, type Tool } from "@/draw/Game";
 
 export type { Tool };
 
 const TOOLS: { tool: Tool; label: string; icon: ReactNode }[] = [
+  { tool: "pencil", label: "Pencil", icon: <Pencil className="h-5 w-5" /> },
   {
     tool: "rect",
     label: "Rectangle",
@@ -19,7 +20,7 @@ const TOOLS: { tool: Tool; label: string; icon: ReactNode }[] = [
 export function Canvas({ roomId, socket }: { socket: WebSocket; roomId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
-  const [selectedTool, setSelectedTool] = useState<Tool>("rect");
+  const [selectedTool, setSelectedTool] = useState<Tool>("pencil");
 
   useEffect(() => {
     const canvas = canvasRef.current;

@@ -1,7 +1,7 @@
 import { type Point, type Shape } from "@repo/common/types";
 import { getExistingShapes } from "./http";
 
-export type Tool = "circle" | "rect";
+export type Tool = "circle" | "rect" | "pencil";
 
 const STROKE = "#ffffff";
 const BACKGROUND = "#0f0f0f";
@@ -13,12 +13,13 @@ export class Game {
   private socket: WebSocket;
 
   private existingShapes: Shape[] = [];
-  private selectedTool: Tool = "rect";
+  private selectedTool: Tool = "pencil";
 
   /** Set while the pointer is down and a shape is being drawn. */
   private drawing = false;
   private startWorld: Point = { x: 0, y: 0 };
   private currentWorld: Point = { x: 0, y: 0 };
+  private pencilPoints: Point[] = [];
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -46,6 +47,8 @@ export class Game {
     this.canvas.removeEventListener("pointerdown", this.pointerDownHandler);
     this.canvas.removeEventListener("pointermove", this.pointerMoveHandler);
     this.canvas.removeEventListener("pointerup", this.pointerUpHandler);
+    this.canvas.removeEventListener("pointercancel", this.pointerUpHandler);
+    this.canvas.removeEventListener("pointerleave", this.pointerUpHandler);
 
     // Do not close the socket here - it is owned by the React component.
     if (this.socket.onmessage) {
@@ -81,6 +84,8 @@ export class Game {
     this.canvas.addEventListener("pointerdown", this.pointerDownHandler);
     this.canvas.addEventListener("pointermove", this.pointerMoveHandler);
     this.canvas.addEventListener("pointerup", this.pointerUpHandler);
+    this.canvas.addEventListener("pointercancel", this.pointerUpHandler);
+    this.canvas.addEventListener("pointerleave", this.pointerUpHandler);
   }
 
   private resize() {
@@ -107,12 +112,22 @@ export class Game {
     this.drawing = true;
     this.startWorld = this.toWorld(e);
     this.currentWorld = this.startWorld;
+    this.pencilPoints = this.selectedTool === "pencil" ? [this.startWorld] : [];
   };
 
   private pointerMoveHandler = (e: PointerEvent) => {
     if (!this.drawing) return;
 
     this.currentWorld = this.toWorld(e);
+
+    if (this.selectedTool === "pencil") {
+      const last = this.pencilPoints[this.pencilPoints.length - 1];
+      // Skip points that are visually identical to keep payloads small.
+      if (!last || Math.hypot(this.currentWorld.x - last.x, this.currentWorld.y - last.y) > 1) {
+        this.pencilPoints.push(this.currentWorld);
+      }
+    }
+
     this.render();
   };
 
@@ -125,6 +140,7 @@ export class Game {
     this.drawing = false;
 
     const shape = this.buildShape();
+    this.pencilPoints = [];
 
     if (!shape) {
       this.render();
@@ -165,6 +181,10 @@ export class Game {
       };
     }
 
+    if (this.selectedTool === "pencil" && this.pencilPoints.length > 1) {
+      return { type: "pencil", points: this.pencilPoints.slice(0, 5000) };
+    }
+
     return null;
   }
 
@@ -203,6 +223,12 @@ export class Game {
   }
 
   private buildPreviewShape(): Shape | null {
+    if (this.selectedTool === "pencil") {
+      return this.pencilPoints.length > 1
+        ? { type: "pencil", points: this.pencilPoints }
+        : null;
+    }
+
     const width = this.currentWorld.x - this.startWorld.x;
     const height = this.currentWorld.y - this.startWorld.y;
 
@@ -239,6 +265,19 @@ export class Game {
       this.ctx.arc(shape.centerX, shape.centerY, Math.abs(shape.radius), 0, Math.PI * 2);
       this.ctx.stroke();
       this.ctx.closePath();
+      return;
+    }
+
+    if (shape.type === "pencil") {
+      const [first, ...rest] = shape.points;
+      if (!first) return;
+
+      this.ctx.beginPath();
+      this.ctx.moveTo(first.x, first.y);
+      for (const point of rest) {
+        this.ctx.lineTo(point.x, point.y);
+      }
+      this.ctx.stroke();
     }
   }
 }
