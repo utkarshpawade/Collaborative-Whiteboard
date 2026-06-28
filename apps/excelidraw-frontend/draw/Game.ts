@@ -1,10 +1,19 @@
 import { type Point, type Shape } from "@repo/common/types";
 import { getExistingShapes } from "./http";
 
-export type Tool = "circle" | "rect" | "pencil";
+export type Tool = "circle" | "rect" | "pencil" | "hand";
 
+const MIN_SCALE = 0.1;
+const MAX_SCALE = 8;
 const STROKE = "#ffffff";
 const BACKGROUND = "#0f0f0f";
+
+/** Viewport state shared with the React toolbar. */
+export interface Camera {
+  offsetX: number;
+  offsetY: number;
+  scale: number;
+}
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -20,6 +29,15 @@ export class Game {
   private startWorld: Point = { x: 0, y: 0 };
   private currentWorld: Point = { x: 0, y: 0 };
   private pencilPoints: Point[] = [];
+
+  /** Set while the canvas is being panned. */
+  private panning = false;
+  private panStartScreen: Point = { x: 0, y: 0 };
+  private panStartOffset: Point = { x: 0, y: 0 };
+  private spaceHeld = false;
+
+  private camera: Camera = { offsetX: 0, offsetY: 0, scale: 1 };
+  private onCameraChange?: (camera: Camera) => void;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -41,6 +59,23 @@ export class Game {
 
   setTool(tool: Tool) {
     this.selectedTool = tool;
+    this.updateCursor();
+  }
+
+  onCamera(listener: (camera: Camera) => void) {
+    this.onCameraChange = listener;
+    listener({ ...this.camera });
+  }
+
+  zoomBy(factor: number) {
+    const rect = this.canvas.getBoundingClientRect();
+    this.applyZoom(factor, { x: rect.width / 2, y: rect.height / 2 });
+  }
+
+  resetView() {
+    this.camera = { offsetX: 0, offsetY: 0, scale: 1 };
+    this.emitCamera();
+    this.render();
   }
 
   destroy() {
@@ -86,6 +121,12 @@ export class Game {
     this.canvas.addEventListener("pointerup", this.pointerUpHandler);
     this.canvas.addEventListener("pointercancel", this.pointerUpHandler);
     this.canvas.addEventListener("pointerleave", this.pointerUpHandler);
+    this.canvas.addEventListener("wheel", this.wheelHandler, { passive: false });
+    this.canvas.addEventListener("contextmenu", this.contextMenuHandler);
+    window.addEventListener("keydown", this.keyDownHandler);
+    window.addEventListener("keyup", this.keyUpHandler);
+
+    this.updateCursor();
   }
 
   private resize() {
@@ -99,12 +140,64 @@ export class Game {
 
   private toWorld(e: PointerEvent): Point {
     const rect = this.canvas.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    return {
+      x: (screenX - this.camera.offsetX) / this.camera.scale,
+      y: (screenY - this.camera.offsetY) / this.camera.scale,
+    };
+  }
+
+  private toScreen(e: PointerEvent): Point {
+    const rect = this.canvas.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  private applyZoom(factor: number, anchorScreen: Point) {
+    const previous = this.camera.scale;
+    const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, previous * factor));
+    if (next === previous) return;
+
+    // Keep the world point under the anchor fixed while zooming.
+    this.camera.offsetX =
+      anchorScreen.x - ((anchorScreen.x - this.camera.offsetX) * next) / previous;
+    this.camera.offsetY =
+      anchorScreen.y - ((anchorScreen.y - this.camera.offsetY) * next) / previous;
+    this.camera.scale = next;
+
+    this.emitCamera();
+    this.render();
+  }
+
+  private emitCamera() {
+    this.onCameraChange?.({ ...this.camera });
+  }
+
+  private updateCursor() {
+    const panMode = this.selectedTool === "hand" || this.spaceHeld;
+    this.canvas.style.cursor = panMode
+      ? this.panning
+        ? "grabbing"
+        : "grab"
+      : "crosshair";
   }
 
   /* --------------------------------- input --------------------------------- */
 
   private pointerDownHandler = (e: PointerEvent) => {
+    // Middle mouse or space always pans, regardless of the selected tool.
+    const wantsPan =
+      this.selectedTool === "hand" || this.spaceHeld || e.button === 1;
+
+    if (wantsPan) {
+      this.canvas.setPointerCapture(e.pointerId);
+      this.panning = true;
+      this.panStartScreen = this.toScreen(e);
+      this.panStartOffset = { x: this.camera.offsetX, y: this.camera.offsetY };
+      this.updateCursor();
+      return;
+    }
+
     if (e.button !== 0) return;
 
     this.canvas.setPointerCapture(e.pointerId);
@@ -116,6 +209,15 @@ export class Game {
   };
 
   private pointerMoveHandler = (e: PointerEvent) => {
+    if (this.panning) {
+      const screen = this.toScreen(e);
+      this.camera.offsetX = this.panStartOffset.x + (screen.x - this.panStartScreen.x);
+      this.camera.offsetY = this.panStartOffset.y + (screen.y - this.panStartScreen.y);
+      this.emitCamera();
+      this.render();
+      return;
+    }
+
     if (!this.drawing) return;
 
     this.currentWorld = this.toWorld(e);
@@ -136,6 +238,12 @@ export class Game {
       this.canvas.releasePointerCapture(e.pointerId);
     }
 
+    if (this.panning) {
+      this.panning = false;
+      this.updateCursor();
+      return;
+    }
+
     if (!this.drawing) return;
     this.drawing = false;
 
@@ -150,6 +258,47 @@ export class Game {
     this.existingShapes.push(shape);
     this.render();
     this.publish(shape);
+  };
+
+  private wheelHandler = (e: WheelEvent) => {
+    e.preventDefault();
+
+    const rect = this.canvas.getBoundingClientRect();
+    const anchor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+    // Ctrl/Cmd + wheel (and pinch on trackpads) zooms, plain wheel scrolls.
+    if (e.ctrlKey || e.metaKey) {
+      this.applyZoom(Math.exp(-e.deltaY * 0.01), anchor);
+      return;
+    }
+
+    this.camera.offsetX -= e.deltaX;
+    this.camera.offsetY -= e.deltaY;
+    this.emitCamera();
+    this.render();
+  };
+
+  private contextMenuHandler = (e: Event) => {
+    e.preventDefault();
+  };
+
+  private keyDownHandler = (e: KeyboardEvent) => {
+    if (e.code === "Space" && !this.spaceHeld) {
+      // Do not hijack the spacebar while the user is typing somewhere else.
+      const target = e.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+
+      this.spaceHeld = true;
+      this.updateCursor();
+      e.preventDefault();
+    }
+  };
+
+  private keyUpHandler = (e: KeyboardEvent) => {
+    if (e.code === "Space") {
+      this.spaceHeld = false;
+      this.updateCursor();
+    }
   };
 
   /* --------------------------------- shapes -------------------------------- */
@@ -203,11 +352,16 @@ export class Game {
   /* -------------------------------- rendering ------------------------------- */
 
   private render() {
+    const { offsetX, offsetY, scale } = this.camera;
+
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.fillStyle = BACKGROUND;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
+    this.ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+
     this.ctx.strokeStyle = STROKE;
-    this.ctx.lineWidth = 2;
+    this.ctx.lineWidth = 2 / scale;
     this.ctx.lineCap = "round";
     this.ctx.lineJoin = "round";
 
