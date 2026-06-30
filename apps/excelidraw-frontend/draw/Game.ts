@@ -1,7 +1,17 @@
 import { type Point, type Shape } from "@repo/common/types";
 import { getExistingShapes } from "./http";
 
-export type Tool = "circle" | "rect" | "pencil" | "hand";
+export type Tool = "circle" | "rect" | "pencil" | "hand" | "text";
+
+const TEXT_FONT_SIZE = 20;
+
+/** Emitted when the user clicks with the text tool selected, so the React
+ * layer can show an editable overlay positioned over the click point. */
+export interface TextEditRequest {
+  screenX: number;
+  screenY: number;
+  world: Point;
+}
 
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 8;
@@ -38,6 +48,7 @@ export class Game {
 
   private camera: Camera = { offsetX: 0, offsetY: 0, scale: 1 };
   private onCameraChange?: (camera: Camera) => void;
+  private onTextEditRequest?: (request: TextEditRequest) => void;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -65,6 +76,28 @@ export class Game {
   onCamera(listener: (camera: Camera) => void) {
     this.onCameraChange = listener;
     listener({ ...this.camera });
+  }
+
+  onTextEdit(listener: (request: TextEditRequest) => void) {
+    this.onTextEditRequest = listener;
+  }
+
+  /** Commits typed text as a shape. Called by the React overlay on submit. */
+  commitText(world: Point, content: string) {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+
+    const shape: Shape = {
+      type: "text",
+      x: world.x,
+      y: world.y,
+      content: trimmed,
+      fontSize: TEXT_FONT_SIZE,
+    };
+
+    this.existingShapes.push(shape);
+    this.render();
+    this.publish(shape);
   }
 
   zoomBy(factor: number) {
@@ -199,6 +232,19 @@ export class Game {
     }
 
     if (e.button !== 0) return;
+
+    if (this.selectedTool === "text") {
+      // Prevent the browser's default mousedown focus handling, which would
+      // otherwise steal focus back from the text overlay right after it mounts.
+      e.preventDefault();
+      const screen = this.toScreen(e);
+      this.onTextEditRequest?.({
+        screenX: screen.x,
+        screenY: screen.y,
+        world: this.toWorld(e),
+      });
+      return;
+    }
 
     this.canvas.setPointerCapture(e.pointerId);
 
@@ -432,6 +478,14 @@ export class Game {
         this.ctx.lineTo(point.x, point.y);
       }
       this.ctx.stroke();
+      return;
+    }
+
+    if (shape.type === "text") {
+      this.ctx.font = `${shape.fontSize}px sans-serif`;
+      this.ctx.fillStyle = STROKE;
+      this.ctx.textBaseline = "top";
+      this.ctx.fillText(shape.content, shape.x, shape.y);
     }
   }
 }
