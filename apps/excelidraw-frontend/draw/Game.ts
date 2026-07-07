@@ -50,6 +50,8 @@ export class Game {
   private onCameraChange?: (camera: Camera) => void;
   private onTextEditRequest?: (request: TextEditRequest) => void;
 
+  private resizeObserver?: ResizeObserver;
+
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
     const ctx = canvas.getContext("2d");
@@ -118,6 +120,8 @@ export class Game {
     this.canvas.removeEventListener("pointercancel", this.pointerUpHandler);
     this.canvas.removeEventListener("pointerleave", this.pointerUpHandler);
 
+    this.resizeObserver?.disconnect();
+
     // Do not close the socket here - it is owned by the React component.
     if (this.socket.onmessage) {
       this.socket.onmessage = null;
@@ -159,13 +163,23 @@ export class Game {
     window.addEventListener("keydown", this.keyDownHandler);
     window.addEventListener("keyup", this.keyUpHandler);
 
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(this.canvas);
+
     this.updateCursor();
   }
 
+  /** Sizes the backing store to the CSS size times the device pixel ratio. */
   private resize() {
     const rect = this.canvas.getBoundingClientRect();
-    this.canvas.width = Math.max(1, Math.round(rect.width));
-    this.canvas.height = Math.max(1, Math.round(rect.height));
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(1, Math.round(rect.width * dpr));
+    const height = Math.max(1, Math.round(rect.height * dpr));
+
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+    }
     this.render();
   }
 
@@ -398,13 +412,21 @@ export class Game {
   /* -------------------------------- rendering ------------------------------- */
 
   private render() {
+    const dpr = window.devicePixelRatio || 1;
     const { offsetX, offsetY, scale } = this.camera;
 
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.fillStyle = BACKGROUND;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    this.ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+    this.ctx.setTransform(
+      scale * dpr,
+      0,
+      0,
+      scale * dpr,
+      offsetX * dpr,
+      offsetY * dpr,
+    );
 
     this.ctx.strokeStyle = STROKE;
     this.ctx.lineWidth = 2 / scale;

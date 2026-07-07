@@ -68,7 +68,7 @@ export function Canvas({ roomId, socket }: { socket: WebSocket; roomId: string }
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-[#0f0f0f]">
-      {/* Sized by CSS; the canvas backing store is kept in sync by Game. */}
+      {/* Sized by CSS; Game keeps the backing store in sync with the DPR. */}
       <canvas ref={canvasRef} className="block h-full w-full touch-none" />
 
       {textEdit && (
