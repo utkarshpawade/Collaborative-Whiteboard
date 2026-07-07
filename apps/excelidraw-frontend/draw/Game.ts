@@ -51,6 +51,7 @@ export class Game {
   private onTextEditRequest?: (request: TextEditRequest) => void;
 
   private resizeObserver?: ResizeObserver;
+  private renderHandle: number | null = null;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -98,7 +99,7 @@ export class Game {
     };
 
     this.existingShapes.push(shape);
-    this.render();
+    this.scheduleRender();
     this.publish(shape);
   }
 
@@ -110,7 +111,7 @@ export class Game {
   resetView() {
     this.camera = { offsetX: 0, offsetY: 0, scale: 1 };
     this.emitCamera();
-    this.render();
+    this.scheduleRender();
   }
 
   destroy() {
@@ -137,7 +138,7 @@ export class Game {
       console.error("[canvas] could not load existing shapes:", e);
       this.existingShapes = [];
     }
-    this.render();
+    this.scheduleRender();
   }
 
   private initHandlers() {
@@ -148,7 +149,7 @@ export class Game {
 
       const shape = JSON.parse(payload.message).shape as Shape;
       this.existingShapes.push(shape);
-      this.render();
+      this.scheduleRender();
     };
   }
 
@@ -180,7 +181,7 @@ export class Game {
       this.canvas.width = width;
       this.canvas.height = height;
     }
-    this.render();
+    this.scheduleRender();
   }
 
   /* ------------------------------- coordinates ------------------------------ */
@@ -213,7 +214,7 @@ export class Game {
     this.camera.scale = next;
 
     this.emitCamera();
-    this.render();
+    this.scheduleRender();
   }
 
   private emitCamera() {
@@ -274,7 +275,7 @@ export class Game {
       this.camera.offsetX = this.panStartOffset.x + (screen.x - this.panStartScreen.x);
       this.camera.offsetY = this.panStartOffset.y + (screen.y - this.panStartScreen.y);
       this.emitCamera();
-      this.render();
+      this.scheduleRender();
       return;
     }
 
@@ -290,7 +291,7 @@ export class Game {
       }
     }
 
-    this.render();
+    this.scheduleRender();
   };
 
   private pointerUpHandler = (e: PointerEvent) => {
@@ -311,12 +312,12 @@ export class Game {
     this.pencilPoints = [];
 
     if (!shape) {
-      this.render();
+      this.scheduleRender();
       return;
     }
 
     this.existingShapes.push(shape);
-    this.render();
+    this.scheduleRender();
     this.publish(shape);
   };
 
@@ -335,7 +336,7 @@ export class Game {
     this.camera.offsetX -= e.deltaX;
     this.camera.offsetY -= e.deltaY;
     this.emitCamera();
-    this.render();
+    this.scheduleRender();
   };
 
   private contextMenuHandler = (e: Event) => {
@@ -410,6 +411,14 @@ export class Game {
   }
 
   /* -------------------------------- rendering ------------------------------- */
+
+  private scheduleRender() {
+    if (this.renderHandle !== null) return;
+    this.renderHandle = requestAnimationFrame(() => {
+      this.renderHandle = null;
+      this.render();
+    });
+  }
 
   private render() {
     const dpr = window.devicePixelRatio || 1;
