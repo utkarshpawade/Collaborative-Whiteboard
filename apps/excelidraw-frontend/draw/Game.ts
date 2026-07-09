@@ -52,6 +52,7 @@ export class Game {
 
   private resizeObserver?: ResizeObserver;
   private renderHandle: number | null = null;
+  private destroyed = false;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -115,13 +116,24 @@ export class Game {
   }
 
   destroy() {
+    this.destroyed = true;
+
     this.canvas.removeEventListener("pointerdown", this.pointerDownHandler);
     this.canvas.removeEventListener("pointermove", this.pointerMoveHandler);
     this.canvas.removeEventListener("pointerup", this.pointerUpHandler);
     this.canvas.removeEventListener("pointercancel", this.pointerUpHandler);
     this.canvas.removeEventListener("pointerleave", this.pointerUpHandler);
+    this.canvas.removeEventListener("wheel", this.wheelHandler);
+    this.canvas.removeEventListener("contextmenu", this.contextMenuHandler);
+    window.removeEventListener("keydown", this.keyDownHandler);
+    window.removeEventListener("keyup", this.keyUpHandler);
 
     this.resizeObserver?.disconnect();
+
+    if (this.renderHandle !== null) {
+      cancelAnimationFrame(this.renderHandle);
+      this.renderHandle = null;
+    }
 
     // Do not close the socket here - it is owned by the React component.
     if (this.socket.onmessage) {
@@ -138,7 +150,9 @@ export class Game {
       console.error("[canvas] could not load existing shapes:", e);
       this.existingShapes = [];
     }
-    this.scheduleRender();
+    if (!this.destroyed) {
+      this.scheduleRender();
+    }
   }
 
   private initHandlers() {
@@ -425,7 +439,7 @@ export class Game {
   /* -------------------------------- rendering ------------------------------- */
 
   private scheduleRender() {
-    if (this.renderHandle !== null) return;
+    if (this.destroyed || this.renderHandle !== null) return;
     this.renderHandle = requestAnimationFrame(() => {
       this.renderHandle = null;
       this.render();
