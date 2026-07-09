@@ -1,4 +1,4 @@
-import { type Point, type Shape } from "@repo/common/types";
+import { ShapeSchema, type Point, type Shape } from "@repo/common/types";
 import { getExistingShapes } from "./http";
 
 export type Tool = "circle" | "rect" | "pencil" | "hand" | "text";
@@ -143,13 +143,25 @@ export class Game {
 
   private initHandlers() {
     this.socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data);
+      let payload: { type?: string; message?: string };
+      try {
+        payload = JSON.parse(event.data);
+      } catch {
+        return;
+      }
 
       if (payload.type !== "chat" || !payload.message) return;
 
-      const shape = JSON.parse(payload.message).shape as Shape;
-      this.existingShapes.push(shape);
-      this.scheduleRender();
+      try {
+        const parsed = JSON.parse(payload.message);
+        const shape = ShapeSchema.safeParse(parsed?.shape);
+        if (!shape.success) return;
+
+        this.existingShapes.push(shape.data);
+        this.scheduleRender();
+      } catch {
+        // Ignore malformed broadcasts rather than breaking the canvas.
+      }
     };
   }
 
