@@ -22,6 +22,13 @@ import { middleware } from "./middleware";
 
 const BCRYPT_ROUNDS = 10;
 
+/**
+ * A valid bcrypt hash of a value nobody can guess. Compared against when the
+ * email is unknown so signin takes the same time either way.
+ */
+const DUMMY_PASSWORD_HASH =
+  "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
 /** Turns a zod error into a flat `{ field: message }` object for the client. */
 function fieldErrors(error: {
   flatten: () => { fieldErrors: Record<string, string[] | undefined> };
@@ -98,10 +105,14 @@ export function createApp(): Express {
         where: { email: parsedData.data.username },
       });
 
-      if (
-        !user ||
-        !(await bcrypt.compare(parsedData.data.password, user.password))
-      ) {
+      // Always run a comparison so the response time does not reveal whether
+      // the account exists.
+      const passwordMatches = await bcrypt.compare(
+        parsedData.data.password,
+        user?.password ?? DUMMY_PASSWORD_HASH,
+      );
+
+      if (!user || !passwordMatches) {
         res.status(403).json({ message: "Incorrect email or password" });
         return;
       }
