@@ -5,6 +5,7 @@ import express, {
   type Response,
 } from "express";
 import cors from "cors";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import {
   JWT_SECRET,
@@ -18,6 +19,8 @@ import {
 } from "@repo/common/types";
 import { prismaClient } from "@repo/db/client";
 import { middleware } from "./middleware";
+
+const BCRYPT_ROUNDS = 10;
 
 /** Turns a zod error into a flat `{ field: message }` object for the client. */
 function fieldErrors(error: {
@@ -63,10 +66,12 @@ export function createApp(): Express {
     }
 
     try {
+      const hashedPassword = await bcrypt.hash(parsedData.data.password, BCRYPT_ROUNDS);
+
       const user = await prismaClient.user.create({
         data: {
           email: parsedData.data.username,
-          password: parsedData.data.password,
+          password: hashedPassword,
           name: parsedData.data.name,
         },
         select: { id: true, email: true, name: true },
@@ -89,14 +94,14 @@ export function createApp(): Express {
     }
 
     try {
-      const user = await prismaClient.user.findFirst({
-        where: {
-          email: parsedData.data.username,
-          password: parsedData.data.password,
-        },
+      const user = await prismaClient.user.findUnique({
+        where: { email: parsedData.data.username },
       });
 
-      if (!user) {
+      if (
+        !user ||
+        !(await bcrypt.compare(parsedData.data.password, user.password))
+      ) {
         res.status(403).json({ message: "Incorrect email or password" });
         return;
       }
