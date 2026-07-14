@@ -7,6 +7,7 @@ import express, {
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { Prisma } from "@prisma/client";
 import {
   JWT_SECRET,
   JWT_EXPIRES_IN,
@@ -86,6 +87,13 @@ export function createApp(): Express {
 
       res.status(201).json({ userId: user.id, user, token: signToken(user.id) });
     } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        res.status(409).json({ message: "An account with this email already exists" });
+        return;
+      }
       next(e);
     }
   });
@@ -166,6 +174,13 @@ export function createApp(): Express {
 
       res.status(201).json({ roomId: room.id, slug: room.slug });
     } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        res.status(409).json({ message: "A room with this name already exists" });
+        return;
+      }
       next(e);
     }
   });
