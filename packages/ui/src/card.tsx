@@ -18,10 +18,12 @@ export function Card({
   children,
   href,
 }: CardProps): JSX.Element {
+  // `children` is arbitrary markup (headings, divs, paragraphs), so it must not
+  // be wrapped in a <p> - that produces invalid nesting and breaks hydration.
   const content = (
     <>
       {title ? <h2 className="text-xl font-semibold">{title}</h2> : null}
-      <p>{children}</p>
+      {children}
     </>
   );
 
