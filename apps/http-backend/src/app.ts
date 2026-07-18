@@ -22,6 +22,7 @@ import { prismaClient } from "@repo/db/client";
 import { middleware } from "./middleware";
 
 const BCRYPT_ROUNDS = 10;
+const MAX_CHAT_MESSAGES = 1000;
 
 /**
  * A valid bcrypt hash of a value nobody can guess. Compared against when the
@@ -49,7 +50,7 @@ function signToken(userId: string): string {
 export function createApp(): Express {
   const app = express();
 
-  app.use(express.json());
+  app.use(express.json({ limit: "1mb" }));
   app.use(
     cors({
       origin: ALLOWED_ORIGINS.includes("*") ? true : ALLOWED_ORIGINS,
@@ -223,11 +224,17 @@ export function createApp(): Express {
   app.get("/chats/:roomId", middleware, async (req, res, next) => {
     const roomId = Number(req.params.roomId);
 
+    if (!Number.isInteger(roomId) || roomId <= 0) {
+      res.status(400).json({ message: "Invalid room id" });
+      return;
+    }
+
     try {
-      // Ascending so clients replay the room history in the order it was written.
+      // Ascending so the canvas replays shapes in the order they were drawn.
       const messages = await prismaClient.chat.findMany({
         where: { roomId },
         orderBy: { id: "asc" },
+        take: MAX_CHAT_MESSAGES,
       });
 
       res.json({ messages });
