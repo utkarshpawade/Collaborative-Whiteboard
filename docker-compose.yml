@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: excalidraw
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot job that applies pending Prisma migrations, then exits.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/http-backend/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/excalidraw?schema=public
+    user: root
+    command: sh -c "pnpm --filter @repo/db db:deploy"
+    restart: "no"
+
+  http-backend:
+    build:
+      context: .
+      dockerfile: apps/http-backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/excalidraw?schema=public
+      # Change this before exposing the stack to anyone else.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in your shell or a root .env file}
+      PORT: 3001
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+    ports:
+      - "3001:3001"
+
+  ws-backend:
+    build:
+      context: .
+      dockerfile: apps/ws-backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/excalidraw?schema=public
+      # Must match the HTTP backend exactly.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in your shell or a root .env file}
+      PORT: 8080
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres-data:
