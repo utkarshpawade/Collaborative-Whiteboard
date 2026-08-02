@@ -86,6 +86,15 @@ pnpm dev
 
 Sign up, create a board, and share its name with someone else to draw together.
 
+## Canvas controls
+
+| Action     | How                                               |
+| ---------- | ------------------------------------------------- |
+| Draw       | Pencil / rectangle / circle from the top toolbar  |
+| Pan        | Hand tool, hold **space**, middle-drag, or scroll |
+| Zoom       | **Ctrl/Cmd + scroll**, or the bottom-left buttons |
+| Reset view | The maximise button, bottom left                  |
+
 ## Useful commands
 
 ```bash
@@ -94,4 +103,20 @@ pnpm check-types   # tsc --noEmit everywhere
 pnpm lint          # eslint everywhere
 pnpm db:studio     # browse the database
 ```
+
+## API
+
+| Method | Route            | Auth | Purpose                       |
+| ------ | ---------------- | ---- | ----------------------------- |
+| GET    | `/health`        | no   | Liveness probe                |
+| POST   | `/signup`        | no   | Create an account, get a token |
+| POST   | `/signin`        | no   | Exchange credentials for a token |
+| GET    | `/me`            | yes  | Current user                  |
+| POST   | `/room`          | yes  | Create a board                |
+| GET    | `/rooms`         | yes  | Boards you created            |
+| GET    | `/room/:slug`    | yes  | Look up a board by name       |
+| GET    | `/chats/:roomId` | yes  | Shape history, oldest first   |
+
+WebSocket messages are `join_room`, `leave_room` and `chat`, each carrying a
+`roomId`; the token goes in `?token=` or an `Authorization: Bearer` header.
 
