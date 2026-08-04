@@ -104,6 +104,44 @@ pnpm lint          # eslint everywhere
 pnpm db:studio     # browse the database
 ```
 
+## Deployment
+
+### Frontend on Vercel
+
+1. New Project → import this repo.
+2. Set **Root Directory** to `apps/excelidraw-frontend`. The `vercel.json` there
+   already sets the install and build commands for the workspace.
+3. Add `NEXT_PUBLIC_HTTP_BACKEND` and `NEXT_PUBLIC_WS_URL` pointing at your
+   deployed backends. Use `https://` and `wss://` — a browser on an HTTPS page
+   cannot open a plain `ws://` socket.
+4. Redeploy after changing them: they are baked in at build time.
+
+### Backends with Docker
+
+Both images build from the repository root:
+
+```bash
+docker build -f apps/http-backend/Dockerfile -t excalidraw-http .
+docker build -f apps/ws-backend/Dockerfile   -t excalidraw-ws   .
+```
+
+Run them with `DATABASE_URL`, `JWT_SECRET`, `PORT` and (for the API)
+`ALLOWED_ORIGINS` set. Both expose `GET /health` for platform health checks.
+
+On Railway / Render / Fly, point the service at the matching Dockerfile with the
+repository root as build context, and run `pnpm db:deploy` once against the
+production database.
+
+### Whole stack locally
+
+```bash
+export JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
+docker compose up --build
+```
+
+This starts Postgres, applies migrations and runs both backends. Run the
+frontend separately with `pnpm dev`.
+
 ## API
 
 | Method | Route            | Auth | Purpose                       |
