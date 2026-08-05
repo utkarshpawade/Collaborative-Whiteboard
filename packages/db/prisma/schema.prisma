@@ -31,6 +31,9 @@ model Chat {
   roomId    Int
   message   String
   userId    String
-  room      Room      @relation(fields: [roomId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
+  room      Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Every read is "all chats for a room, newest first".
+  @@index([roomId, id])
 }
