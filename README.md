@@ -158,3 +158,9 @@ frontend separately with `pnpm dev`.
 WebSocket messages are `join_room`, `leave_room` and `chat`, each carrying a
 `roomId`; the token goes in `?token=` or an `Authorization: Bearer` header.
 
+## Notes
+
+- Passwords are hashed with bcrypt. Accounts created before this change stored
+  plaintext passwords and can no longer sign in — recreate them.
+- `packages/db/.env` is gitignored. Rotate any credential that was ever
+  committed or shared.
