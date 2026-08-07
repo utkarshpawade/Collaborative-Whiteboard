@@ -1,0 +1,86 @@
+# Render Blueprint - the two backends and their Postgres database.
+# The frontend goes to Vercel; see "Deployment" in the README.
+#
+#   Render Dashboard -> New -> Blueprint -> pick this repo -> Apply.
+#
+# Two values are asked for at apply time (they are marked `sync: false` because
+# they are not knowable until the other half of the stack exists):
+#
+#   ALLOWED_ORIGINS  the Vercel URL, e.g. https://your-app.vercel.app
+#
+# Both services build from the repository root so the pnpm workspace resolves;
+# that is why every `dockerContext` is `.` rather than the app directory.
+
+# Every resource sits in the same region so the services reach the database
+# over the private network. Singapore is Render's closest region to India.
+databases:
+  - name: excalidraw-db
+    databaseName: excalidraw
+    user: excalidraw
+    plan: free
+    region: singapore
+    postgresMajorVersion: "16"
+    # Services reach the database over Render's private network, so no public
+    # ingress is needed. Add your own IP here if you want psql/Prisma Studio
+    # access from your laptop.
+    ipAllowList: []
+
+services:
+  # REST API: auth, rooms, shape history.
+  - type: web
+    name: excalidraw-http
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./apps/http-backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    # Applies pending Prisma migrations before the API starts. `migrate deploy`
+    # is idempotent, so it is safe on every restart and redeploy. Only this
+    # service migrates - the WebSocket server must not race it.
+    # The prisma CLI is invoked directly rather than through `pnpm` so the
+    # runtime stage does not need corepack to fetch pnpm.
+    dockerCommand: >-
+      sh -c "packages/db/node_modules/.bin/prisma migrate deploy
+      --schema packages/db/prisma/schema.prisma &&
+      node apps/http-backend/dist/index.js"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: excalidraw-db
+          property: connectionString
+      # Generated once, then shared with the WebSocket server below. Tokens
+      # signed by this API must verify there.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      # Comma separated. Set this to your Vercel URL - a wrong value here is
+      # the usual cause of CORS failures in the browser.
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+  # WebSocket server: broadcasts and persists shapes.
+  - type: web
+    name: excalidraw-ws
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./apps/ws-backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: excalidraw-db
+          property: connectionString
+      # Pulled from the API so the two secrets cannot drift apart.
+      - key: JWT_SECRET
+        fromService:
+          name: excalidraw-http
+          type: web
+          envVarKey: JWT_SECRET
