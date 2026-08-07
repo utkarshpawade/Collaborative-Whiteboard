@@ -35,15 +35,11 @@ services:
     dockerfilePath: ./apps/http-backend/Dockerfile
     dockerContext: .
     healthCheckPath: /health
-    # Applies pending Prisma migrations before the API starts. `migrate deploy`
-    # is idempotent, so it is safe on every restart and redeploy. Only this
-    # service migrates - the WebSocket server must not race it.
-    # The prisma CLI is invoked directly rather than through `pnpm` so the
-    # runtime stage does not need corepack to fetch pnpm.
-    dockerCommand: >-
-      sh -c "packages/db/node_modules/.bin/prisma migrate deploy
-      --schema packages/db/prisma/schema.prisma &&
-      node apps/http-backend/dist/index.js"
+    # Applies pending Prisma migrations, then starts the API. Kept in a script
+    # rather than inline: Render splits this value on whitespace and does not
+    # honour shell quoting, so an inline `sh -c "a && b"` exits 127.
+    # Invoked via `sh` so the file does not need its executable bit set.
+    dockerCommand: sh /app/apps/http-backend/render-start.sh
     envVars:
       - key: NODE_ENV
         value: production
