@@ -1,0 +1,31 @@
+{
+	# CloudFront terminates TLS and forwards to this listener over plain HTTP,
+	# so Caddy must not try to provision its own certificates.
+	auto_https off
+	admin off
+}
+
+:80 {
+	# Liveness probe for the box itself, independent of the three apps.
+	handle /_health {
+		respond "ok" 200
+	}
+
+	# The REST API mounts its routes at the root (/signup, /room, /chats/:id),
+	# so the /api prefix that keeps this on one domain has to come back off.
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy http-backend:3001
+	}
+
+	# reverse_proxy passes HTTP/1.1 Upgrade through untouched, so WebSocket
+	# connections need no extra configuration here.
+	handle /ws* {
+		reverse_proxy ws-backend:8080
+	}
+
+	# Everything else is the Next.js app.
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

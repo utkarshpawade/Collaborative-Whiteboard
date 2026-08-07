@@ -106,6 +106,22 @@ pnpm db:studio     # browse the database
 
 ## Deployment
 
+### Everything on AWS (free tier)
+
+Scripted end to end in [`deploy/aws`](deploy/aws): CloudFront for TLS in front of
+a single EC2 instance running the frontend, both backends and Caddy, with
+Postgres on RDS.
+
+```bash
+cd deploy/aws
+export AWS_REGION=ap-south-1
+./provision.sh    # create the infrastructure
+./deploy.sh       # build, push to ECR, roll out
+```
+
+See [deploy/aws/README.md](deploy/aws/README.md) for the architecture, costs and
+teardown.
+
 ### Frontend on Vercel
 
 1. New Project → import this repo.

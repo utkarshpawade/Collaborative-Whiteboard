@@ -1,0 +1,90 @@
+# Runs on the EC2 host. Postgres is RDS, so there is no database service here.
+# Images are pulled from ECR; nothing is built on the box (a t3.micro cannot
+# build a Next.js app). Configuration comes from the .env file beside this one.
+name: excalidraw
+
+services:
+  # One-shot job that applies pending Prisma migrations, then exits. The backend
+  # image carries the whole workspace, so pnpm and packages/db are available.
+  migrate:
+    image: ${ECR_REGISTRY:?}/excalidraw-http:${IMAGE_TAG:-latest}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?}
+    user: root
+    command: sh -c "pnpm --filter @repo/db db:deploy"
+    restart: "no"
+
+  http-backend:
+    image: ${ECR_REGISTRY:?}/excalidraw-http:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=256
+      DATABASE_URL: ${DATABASE_URL:?}
+      JWT_SECRET: ${JWT_SECRET:?}
+      PORT: 3001
+      # Same-origin in this topology, but the API still echoes it on CORS.
+      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?}
+    expose:
+      - "3001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Must stay at exactly one replica: connections live in an in-process Map with
+  # no shared pub/sub, so a second instance would split rooms in half.
+  ws-backend:
+    image: ${ECR_REGISTRY:?}/excalidraw-ws:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=256
+      DATABASE_URL: ${DATABASE_URL:?}
+      # Must match the HTTP backend exactly or tokens will not verify.
+      JWT_SECRET: ${JWT_SECRET:?}
+      PORT: 8080
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    image: ${ECR_REGISTRY:?}/excalidraw-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NODE_OPTIONS: --max-old-space-size=256
+    expose:
+      - "3000"
+
+  # Terminates nothing: CloudFront handles TLS. This only routes by path and
+  # strips the /api prefix the REST API does not expect.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - http-backend
+      - ws-backend
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:
