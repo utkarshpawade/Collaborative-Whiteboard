@@ -12,6 +12,13 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+# Git Bash (MSYS) rewrites arguments that look like absolute POSIX paths:
+# /aws/service/... becomes C:/Program Files/Git/aws/service/... and the
+# /dev/xvda in --block-device-mappings goes the same way. Exclude just those
+# two shapes - a blanket '*' also breaks resolving the aws launcher itself.
+# Unset outside MSYS, where it is simply ignored.
+export MSYS2_ARG_CONV_EXCL='/aws/;DeviceName='
+
 AWS="${AWS_CLI:-aws}"
 REGION="${AWS_REGION:-ap-south-1}"
 PROFILE_ARG=""
@@ -24,7 +31,10 @@ DB_NAME=excalidraw
 DB_USER=excalidraw
 STATE_FILE=".state.env"
 
-aws_() { $AWS --region "$REGION" $PROFILE_ARG "$@"; }
+# The AWS CLI emits CRLF on Windows. A stray \r survives pipes and `read`,
+# and AWS rejects it as a control character (RDS) or silently bakes it into
+# values like the CloudFront domain and the .pem key, so strip it centrally.
+aws_() { $AWS --region "$REGION" $PROFILE_ARG "$@" | tr -d '\r'; }
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m[warn] %s\033[0m\n' "$*" >&2; }
 
@@ -177,6 +187,9 @@ DB_ID="$PREFIX-db"
 if ! aws_ rds describe-db-instances --db-instance-identifier "$DB_ID" >/dev/null 2>&1; then
   PG_VERSION=$(aws_ rds describe-db-engine-versions --engine postgres --default-only \
     --query 'DBEngineVersions[0].EngineVersion' --output text)
+  # backup-retention-period: accounts on the new credit-based Free Plan reject
+  # anything above their cap with FreeTierRestrictionError. 0 disables automated
+  # backups and point-in-time recovery; raise it on a paid plan.
   echo "Creating $DB_ID on postgres $PG_VERSION (this takes about 5-10 minutes)"
   aws_ rds create-db-instance \
     --db-instance-identifier "$DB_ID" \
@@ -188,7 +201,7 @@ if ! aws_ rds describe-db-instances --db-instance-identifier "$DB_ID" >/dev/null
     --db-subnet-group-name "$SUBNET_GROUP" \
     --vpc-security-group-ids "$RDS_SG" \
     --no-publicly-accessible \
-    --backup-retention-period 7 \
+    --backup-retention-period "${BACKUP_RETENTION:-7}" \
     --no-multi-az \
     --no-auto-minor-version-upgrade \
     --no-enable-performance-insights \
@@ -265,8 +278,13 @@ echo "Origin hostname: $PUBLIC_DNS"
 
 # --------------------------------------------------------------- CloudFront --
 
-log "CloudFront distribution"
-if [[ -z "${CF_DOMAIN:-}" ]]; then
+# CloudFront needs an account AWS has verified, and brand new accounts are
+# refused until that clears. Setting PUBLIC_DOMAIN skips CloudFront entirely
+# and lets Caddy terminate TLS on the instance instead (see the Caddyfile).
+if [[ -n "${PUBLIC_DOMAIN:-}" ]]; then
+  log "Public domain (CloudFront skipped)"
+elif [[ -z "${CF_DOMAIN:-}" ]]; then
+  log "CloudFront distribution"
   # Managed policy IDs are global constants.
   CACHE_DISABLED=4135ea2d-6df8-44a3-9df3-4b5a84be39ad
   CACHE_OPTIMIZED=658327ea-f89d-4fab-a63d-7e88639e58f6
@@ -350,8 +368,11 @@ JSON
   save CF_ID "$cf_id"
   save CF_DOMAIN "$cf_domain"
 fi
-save PUBLIC_ORIGIN "https://$CF_DOMAIN"
-echo "CloudFront: https://$CF_DOMAIN"
+# Whichever path ran above, one of these two holds the public hostname.
+PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-${CF_DOMAIN:-}}"
+save PUBLIC_DOMAIN "$PUBLIC_DOMAIN"
+save PUBLIC_ORIGIN "https://$PUBLIC_DOMAIN"
+echo "Public origin: https://$PUBLIC_DOMAIN"
 
 # ------------------------------------------------------------------- finish --
 
@@ -365,7 +386,7 @@ save DATABASE_URL "postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:5432/$DB_NAME?sch
 log "Provisioning complete"
 cat <<SUMMARY
 
-  Public URL     https://$CF_DOMAIN
+  Public URL     https://$PUBLIC_DOMAIN
   EC2            $INSTANCE_ID at $PUBLIC_IP
   Database       $DB_HOST
   SSH            ssh -i deploy/aws/$KEY_FILE ec2-user@$PUBLIC_IP
