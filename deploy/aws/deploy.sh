@@ -6,7 +6,12 @@
 # cannot complete a Next.js production build.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
+# Resolved once, absolutely: the build step below cds to the repository root,
+# and coming back with $(dirname $BASH_SOURCE) is a no-op when the script was
+# invoked as ./deploy.sh - dirname is then just '.'. That left relative paths
+# such as the ssh key resolving against the repository root instead of here.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cd "$SCRIPT_DIR"
 STATE_FILE=".state.env"
 [[ -f "$STATE_FILE" ]] || { echo "No $STATE_FILE. Run ./provision.sh first." >&2; exit 1; }
 # shellcheck disable=SC1090
@@ -15,7 +20,10 @@ source "$STATE_FILE"
 AWS="${AWS_CLI:-aws}"
 PROFILE_ARG=""
 [[ -n "${AWS_PROFILE:-}" ]] && PROFILE_ARG="--profile ${AWS_PROFILE}"
-aws_() { $AWS --region "$REGION" $PROFILE_ARG "$@"; }
+# The AWS CLI emits CRLF on Windows. A stray \r survives pipes and `read`,
+# and AWS rejects it as a control character (RDS) or silently bakes it into
+# values like the CloudFront domain and the .pem key, so strip it centrally.
+aws_() { $AWS --region "$REGION" $PROFILE_ARG "$@" | tr -d '\r'; }
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
 REPO_ROOT=$(cd ../.. && pwd)
@@ -42,7 +50,7 @@ cd "$REPO_ROOT"
 # known at build time. This is why CloudFront is created before the first deploy.
 "${BUILD[@]}" -f apps/excelidraw-frontend/Dockerfile \
   --build-arg "NEXT_PUBLIC_HTTP_BACKEND=$PUBLIC_ORIGIN/api" \
-  --build-arg "NEXT_PUBLIC_WS_URL=wss://$CF_DOMAIN/ws" \
+  --build-arg "NEXT_PUBLIC_WS_URL=wss://$PUBLIC_DOMAIN/ws" \
   -t "$ECR_REGISTRY/excalidraw-frontend:$TAG" -t "$ECR_REGISTRY/excalidraw-frontend:latest" .
 
 log "Pushing to ECR"
@@ -51,14 +59,22 @@ for repo in excalidraw-http excalidraw-ws excalidraw-frontend; do
   docker push "$ECR_REGISTRY/$repo:latest"
 done
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
+cd "$SCRIPT_DIR"
 
 log "Waiting for the instance bootstrap to finish"
+BOOTSTRAP_MARKER=/var/lib/cloud/instance/excalidraw-bootstrap-done
 for i in {1..40}; do
-  if ssh "${SSH_OPTS[@]}" "ec2-user@$PUBLIC_IP" 'test -f /var/lib/cloud/instance/excalidraw-bootstrap-done' 2>/dev/null; then
+  if ssh "${SSH_OPTS[@]}" "ec2-user@$PUBLIC_IP" "test -f $BOOTSTRAP_MARKER" 2>/dev/null; then
     break
   fi
-  [[ $i -eq 40 ]] && { echo "Bootstrap did not complete; check /var/log/excalidraw-bootstrap.log" >&2; exit 1; }
+  if [[ $i -eq 40 ]]; then
+    # The poll above discards stderr, so repeat it once with the error visible;
+    # an ssh problem and an unfinished bootstrap look identical otherwise.
+    echo "Bootstrap check never succeeded. Retrying once with ssh errors shown:" >&2
+    ssh "${SSH_OPTS[@]}" "ec2-user@$PUBLIC_IP" "test -f $BOOTSTRAP_MARKER" >&2 || true
+    echo "If ssh itself is fine, check /var/log/excalidraw-bootstrap.log on the box." >&2
+    exit 1
+  fi
   sleep 15
 done
 
@@ -73,6 +89,7 @@ IMAGE_TAG=$TAG
 DATABASE_URL=$DATABASE_URL
 JWT_SECRET=$JWT_SECRET
 PUBLIC_ORIGIN=$PUBLIC_ORIGIN
+PUBLIC_DOMAIN=$PUBLIC_DOMAIN
 ENV
 
 log "Rolling out"
@@ -88,12 +105,13 @@ REMOTE
 
 log "Verifying"
 sleep 10
-echo -n "  origin  /_health   -> "; curl -fsS --max-time 15 "http://$PUBLIC_IP/_health" || echo "FAILED"
-echo
-echo -n "  origin  /api/health -> "; curl -fsS --max-time 15 "http://$PUBLIC_IP/api/health" || echo "FAILED"
-echo
-echo -n "  cdn     /api/health -> "; curl -fsS --max-time 30 "$PUBLIC_ORIGIN/api/health" || echo "not ready yet"
-echo
+# Caddy matches on the Host header, so these must go through the domain; the
+# raw IP would not match the site block at all.
+for path in /_health /api/health /ws/health; do
+  printf "  %-12s -> " "$path"
+  curl -fsS --max-time 30 "$PUBLIC_ORIGIN$path" || echo "not ready yet"
+  echo
+done
 
 cat <<DONE
 
@@ -102,7 +120,8 @@ cat <<DONE
   App    $PUBLIC_ORIGIN
   Logs   ssh -i deploy/aws/$KEY_FILE ec2-user@$PUBLIC_IP 'cd /opt/excalidraw && docker compose -f docker-compose.prod.yml logs -f'
 
-  A new CloudFront distribution takes 5-15 minutes to reach every edge. Until
-  then the CDN URL may 502 while the origin checks above already pass.
+  Caddy requests a Let's Encrypt certificate the first time it starts, which
+  takes a few seconds. Until that finishes the checks above can fail while the
+  containers are already healthy - 'docker compose logs caddy' shows progress.
 
 DONE

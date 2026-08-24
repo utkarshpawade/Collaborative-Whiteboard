@@ -69,8 +69,10 @@ services:
     expose:
       - "3000"
 
-  # Terminates nothing: CloudFront handles TLS. This only routes by path and
-  # strips the /api prefix the REST API does not expect.
+  # Terminates TLS with a Let's Encrypt certificate it provisions itself, then
+  # routes by path and strips the /api prefix the REST API does not expect.
+  # Port 80 stays published for the ACME HTTP-01 challenge and for the redirect
+  # to HTTPS that Caddy installs automatically.
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -78,8 +80,11 @@ services:
       - frontend
       - http-backend
       - ws-backend
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?}
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
