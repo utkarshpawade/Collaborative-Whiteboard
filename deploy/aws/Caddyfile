@@ -1,16 +1,11 @@
 {
-	# Caddy now terminates TLS itself instead of sitting behind CloudFront, so
-	# automatic HTTPS is left on: it provisions and renews a Let's Encrypt
-	# certificate for the site address below over the HTTP-01 challenge, which
-	# is why port 80 has to stay reachable from anywhere. Certificates persist
-	# in the caddy-data volume, so a container restart does not re-issue them.
+	# CloudFront terminates TLS and forwards to this listener over plain HTTP,
+	# so Caddy must not try to provision its own certificates.
+	auto_https off
 	admin off
 }
 
-# Supplied via the container environment (see docker-compose.prod.yml). Let's
-# Encrypt refuses to issue for *.compute.amazonaws.com, so the EC2 hostname
-# cannot be used here; sslip.io resolves any a-b-c-d.sslip.io to that IP.
-{$PUBLIC_DOMAIN} {
+:80 {
 	# Liveness probe for the box itself, independent of the three apps.
 	handle /_health {
 		respond "ok" 200
@@ -23,18 +18,8 @@
 		reverse_proxy http-backend:3001
 	}
 
-	# The ws server matches its health route as exactly "/health", so this one
-	# path needs the prefix removed. Caddy orders `handle` blocks by matcher
-	# specificity, so this wins over the /ws* block below.
-	handle /ws/health {
-		uri strip_prefix /ws
-		reverse_proxy ws-backend:8080
-	}
-
 	# reverse_proxy passes HTTP/1.1 Upgrade through untouched, so WebSocket
-	# connections need no extra configuration here. The upgrade arrives as
-	# /ws?token=..., and the server reads the token from the query string, so
-	# the path prefix does not need stripping.
+	# connections need no extra configuration here.
 	handle /ws* {
 		reverse_proxy ws-backend:8080
 	}

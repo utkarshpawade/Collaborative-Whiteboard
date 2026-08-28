@@ -3,10 +3,6 @@
 A collaborative whiteboard: draw freehand, rectangles and circles on an infinite
 canvas and see everyone else's shapes appear live.
 
-**Live: <https://13-127-107-151.sslip.io>** - running on AWS (EC2 + RDS + ECR),
-provisioned and deployed by the scripts in [`deploy/aws`](deploy/aws). See
-[Deployment](#deployment).
-
 ## Structure
 
 Turborepo + pnpm workspaces.
@@ -112,30 +108,19 @@ pnpm db:studio     # browse the database
 
 ### Everything on AWS (free tier)
 
-**This is the live deployment.** Scripted end to end in
-[`deploy/aws`](deploy/aws): one EC2 instance running the frontend, both backends
-and Caddy, with Postgres on RDS and images in ECR. Caddy terminates TLS with a
-Let's Encrypt certificate it renews itself; CloudFront is still supported but
-optional, since a new AWS account cannot create distributions until support
-verifies it.
+Scripted end to end in [`deploy/aws`](deploy/aws): CloudFront for TLS in front of
+a single EC2 instance running the frontend, both backends and Caddy, with
+Postgres on RDS.
 
 ```bash
 cd deploy/aws
 export AWS_REGION=ap-south-1
-# Caddy terminates TLS on the box and CloudFront is skipped. sslip.io resolves
-# a-b-c-d.sslip.io to that IP, so this needs no DNS of your own.
-export PUBLIC_DOMAIN=13-127-107-151.sslip.io
-# AWS's credit-based Free Plan rejects the 7-day default for RDS backups.
-export BACKUP_RETENTION=1
-
 ./provision.sh    # create the infrastructure
 ./deploy.sh       # build, push to ECR, roll out
 ```
 
-Both scripts are idempotent - re-run either after a failure and it resumes.
-
-See [deploy/aws/README.md](deploy/aws/README.md) for the architecture, the two
-Git Bash quirks that break the AWS CLI on Windows, costs and teardown.
+See [deploy/aws/README.md](deploy/aws/README.md) for the architecture, costs and
+teardown.
 
 ### Vercel + Render
 

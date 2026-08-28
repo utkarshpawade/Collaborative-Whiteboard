@@ -1,21 +1,20 @@
 # AWS deployment
 
 Free-tier deployment of the whole stack: one EC2 instance running the frontend,
-both backends and Caddy, with Postgres on RDS.
-
-Caddy terminates TLS itself with a Let's Encrypt certificate. CloudFront is still
-supported but optional - see "TLS: Caddy or CloudFront" below.
+both backends and Caddy, with Postgres on RDS and CloudFront in front for TLS.
 
 ```
 Browser
    |  https + wss
-[ EC2 t3.micro ]  Elastic IP                   750 hrs/mo free (legacy tier)
-   |  Caddy :80 -> :443, Let's Encrypt
+[ CloudFront ]  dxxxxxxxx.cloudfront.net       TLS, 1 TB/mo free, perpetual
+   |  http
+[ EC2 t3.micro ]  Elastic IP                   750 hrs/mo free
+   |  Caddy :80
    |    /api/*  -> strip /api -> http-backend :3001
    |    /ws*    ->              ws-backend    :8080
    |    /*      ->              frontend      :3000
    |
-[ RDS db.t4g.micro ]  Postgres                 750 hrs/mo + 20 GB (legacy tier)
+[ RDS db.t4g.micro ]  Postgres                 750 hrs/mo + 20 GB free
 ```
 
 Deliberately **not** used: an Application Load Balancer (no free tier, ~$18/mo)
@@ -30,14 +29,9 @@ strip the `/api` prefix, because the REST API mounts its routes at the root.
 
 ## Prerequisites
 
-- AWS credentials for EC2, RDS, ECR, IAM (and CloudFront, if used).
-  `AdministratorAccess` is simplest; the scripts create IAM roles, so even a
-  narrower policy still needs `IAMFullAccess`.
+- AWS credentials with permissions for EC2, RDS, ECR, IAM, CloudFront
 - Docker running locally (images are built here, not on the instance)
-- `aws`, `docker`, `ssh`, `git`, `openssl`, `python` on PATH
-
-IAM is eventually consistent: after attaching a policy, a run started
-immediately can still fail `AccessDenied` on the first write call.
+- `aws`, `docker`, `ssh`, `git`, `openssl` on PATH
 
 ## Deploy
 
@@ -45,44 +39,9 @@ immediately can still fail `AccessDenied` on the first write call.
 cd deploy/aws
 export AWS_REGION=ap-south-1        # or wherever you want it
 
-# Skips CloudFront and has Caddy terminate TLS instead. sslip.io resolves
-# a-b-c-d.sslip.io to that IP, so no DNS of your own is needed. Let's Encrypt
-# refuses to issue for *.compute.amazonaws.com, so the EC2 hostname will not do.
-export PUBLIC_DOMAIN=13-127-107-151.sslip.io   # match your Elastic IP
-
-# Accounts on AWS's credit-based Free Plan reject the default 7 with
-# FreeTierRestrictionError. 0 disables automated backups altogether.
-export BACKUP_RETENTION=1
-
 ./provision.sh                      # ~15 min, mostly waiting on RDS
 ./deploy.sh                         # build, push, roll out
 ```
-
-### TLS: Caddy or CloudFront
-
-Leave `PUBLIC_DOMAIN` unset and `provision.sh` creates a CloudFront distribution
-and uses its `dxxxx.cloudfront.net` name, with Caddy serving plain HTTP behind
-it. That path needs an AWS-verified account - new accounts are refused with
-`Your account must be verified before you can add new CloudFront resources`
-until support clears it.
-
-Set `PUBLIC_DOMAIN` and CloudFront is skipped; Caddy provisions and renews a
-Let's Encrypt certificate over the HTTP-01 challenge, which is why the security
-group keeps port 80 open alongside 443. Moving between the two later means
-rebuilding the frontend image - see the ordering constraint below.
-
-### Running from Git Bash on Windows
-
-Two MSYS behaviours break these scripts if reintroduced:
-
-- Arguments that look like absolute POSIX paths get rewritten into Windows
-  paths, so `/aws/service/...` arrives as `C:/Program Files/Git/aws/service/...`
-  and `/dev/xvda` likewise. `provision.sh` exports `MSYS2_ARG_CONV_EXCL` for the
-  two argument shapes affected. A blanket `'*'` is not usable - it also breaks
-  resolving the `aws` launcher itself.
-- The AWS CLI emits CRLF. A stray CR survives pipes and `read`, and AWS rejects
-  it as a control character. Every script strips it in the `aws_` wrapper, which
-  also keeps it out of the generated `.pem`.
 
 `provision.sh` is idempotent — re-run it after a failure and it picks up where it
 stopped. It writes `.state.env` (gitignored) holding resource IDs, the generated
@@ -93,9 +52,9 @@ To ship a code change afterwards, only `./deploy.sh` is needed.
 ## Ordering constraint
 
 `NEXT_PUBLIC_HTTP_BACKEND` and `NEXT_PUBLIC_WS_URL` are inlined into the client
-bundle by `next build`. The frontend therefore cannot be built until the public
-hostname is known, which is why `provision.sh` settles `PUBLIC_DOMAIN` first and
-`deploy.sh` passes it in as a build argument. Changing the public URL
+bundle by `next build`. The frontend therefore cannot be built until the
+CloudFront domain exists, which is why `provision.sh` creates the distribution
+and `deploy.sh` passes the domain in as a build argument. Changing the public URL
 means rebuilding the frontend image, not restarting a container.
 
 ## Scaling limits
@@ -110,10 +69,6 @@ The instance has 1 GB of RAM for three Node processes, so `user-data.sh` adds 2 
 of swap and each container is capped at a 256 MB heap.
 
 ## Operating
-
-`provision.sh` opens SSH to the machine's public IP at the time it ran. On a
-dynamic connection that changes; re-running `provision.sh` adds the new address
-(old rules stay, so prune them occasionally).
 
 ```bash
 source .state.env
@@ -130,32 +85,20 @@ Health checks:
 
 | Check | URL |
 | --- | --- |
-| Caddy itself | `$PUBLIC_ORIGIN/_health` |
-| REST API | `$PUBLIC_ORIGIN/api/health` |
-| WebSocket server | `$PUBLIC_ORIGIN/ws/health` |
+| Caddy itself | `http://$PUBLIC_IP/_health` |
+| REST API | `http://$PUBLIC_IP/api/health` |
+| WebSocket server | `http://$PUBLIC_IP/ws/health` |
+| Through the CDN | `$PUBLIC_ORIGIN/api/health` |
 
-Caddy matches on the Host header, so these must go through `PUBLIC_DOMAIN`; the
-raw IP does not match the site block and 404s. On first start Caddy needs a few
-seconds to obtain its certificate - `docker compose logs caddy` shows progress.
-
-If you kept CloudFront, a brand new distribution takes 5-15 minutes to propagate
-and can 502 while the origin checks already pass.
+A brand new distribution takes 5–15 minutes to propagate; until it does, the CDN
+URL can 502 while the origin checks already pass.
 
 ## Costs after the free tier
 
-Roughly $8/mo for the instance, $12/mo for the database, ~$2/mo for storage and
-~$4/mo for the public IPv4 address: about **$28/mo**.
-
-Two things catch people out:
-
-- **Every public IPv4 address is billed hourly**, attached or not, since Feb
-  2024. Stopping the instance still costs a few dollars a month unless the
-  address is released - and releasing it changes the sslip.io hostname, which
-  means rebuilding the frontend image.
-- Accounts opened under AWS's **credit-based Free Plan** get a fixed pot of
-  credits over a few months rather than 12 months of free EC2/RDS hours. At
-  ~$28/mo this stack burns $100 of credits in about three and a half months.
-  Billing -> Free tier shows which plan applies.
+Roughly $8/mo for the instance, $12/mo for the database, and CloudFront stays
+free below 1 TB. An **Elastic IP is billed hourly when it is not attached to a
+running instance**, so stopping the instance to save money still costs a few
+dollars a month unless the address is released too.
 
 ## Teardown
 
@@ -164,8 +107,5 @@ Two things catch people out:
 ```
 
 Deletes everything, including the database and every drawing in it, with no final
-snapshot. If a CloudFront distribution exists it must be disabled and fully
-propagated first, which is why the script waits ~10 minutes; with `PUBLIC_DOMAIN`
-set there is no distribution and teardown is quicker.
-
-Releasing the Elastic IP is part of teardown, and skipping it keeps billing.
+snapshot. CloudFront must be disabled and fully propagated before it can be
+deleted, which is why the script waits ~10 minutes.

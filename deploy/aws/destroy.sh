@@ -13,10 +13,7 @@ source "$STATE_FILE"
 AWS="${AWS_CLI:-aws}"
 PROFILE_ARG=""
 [[ -n "${AWS_PROFILE:-}" ]] && PROFILE_ARG="--profile ${AWS_PROFILE}"
-# The AWS CLI emits CRLF on Windows. A stray \r survives pipes and `read`,
-# and AWS rejects it as a control character (RDS) or silently bakes it into
-# values like the CloudFront domain and the .pem key, so strip it centrally.
-aws_() { $AWS --region "$REGION" $PROFILE_ARG "$@" | tr -d '\r'; }
+aws_() { $AWS --region "$REGION" $PROFILE_ARG "$@"; }
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
 PREFIX="${STACK_PREFIX:-excalidraw}"
